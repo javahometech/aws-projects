@@ -69,7 +69,7 @@ Resources:
         Type: AWS::CodeBuild::Project
         Properties:
             Name: !Sub '${ServiceName}-build-${Stage}'
-            Description: Build project for the Tailor service
+            Description: Build project for myApp
             Artifacts:
               Type: CODEPIPELINE
             Environment:
