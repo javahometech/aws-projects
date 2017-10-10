@@ -1,15 +1,21 @@
 AWSTemplateFormatVersion: 2010-09-09
 Parameters:
-
+    DeploymentGroupName:
+      Description: 'The deployment group name'
+      Default: MyAppGroup
+      Type: String
     GitHubOwner:
       Description: 'The owner of the GitHub repository.'
       Type: String
+      Default: javahometech
     GitHubOAuthToken:
       Description: 'The OAuthToken of the GitHub user.'
+      Default: 80ea1e00ff86de67478df6328af60db3a02f9ff5
       Type: String
     GitHubRepo:
       Description: 'The GitHub repository.'
       Type: String
+      Default: myweb
     ServiceName:
         Type: String
         Description: Name of the service being built. This name will be reflected in the pipeline name and build names.
@@ -20,10 +26,10 @@ Parameters:
           - beta
           - prod
         Description: Enter alpha, beta or prod to designate the deployment stage/environment
-    DeploymentZipName:
-        Type: String
-        Default: tailor-deploy.zip
-        Description: Enter the name of the zip artifact in S3 that CodePipeline will watch to invoke the pipeline
+    #DeploymentZipName:
+#        Type: String
+#        Default: tailor-deploy.zip
+#        Description: Enter the name of the zip artifact in S3 that CodePipeline will watch to invoke the pipeline
     SAMInputFile:
         Type: String
         Default: main.yaml
@@ -31,6 +37,15 @@ Parameters:
     BuildArtifactsBucket:
         Type: String
         Description: Enter the name of the S3 bucket that will store all artifacts
+    EC2TagKey:
+        Type: String
+        Description: Enter the key for code deploy instances
+        Default: Name  
+    EC2TagValue:
+        Type: String
+        Description: Enter the value for code deploy instances
+        Default: Dev      
+        
 Resources:
     # CodeBuild project and resources (S3 Bucket for build artifacts, Role, Project)
     CodeBuildServiceRole:
@@ -193,34 +208,55 @@ Resources:
                         - Name: SamTemplate
                 - Name: Deploy
                   Actions:
-                    - Name: CreateChangeSet
+                    - Name: MyAppCodeDeploy
+                      InputArtifacts: 
+                          - Name: SamTemplate
                       ActionTypeId:
                         Category: Deploy
                         Owner: AWS
-                        Provider: CloudFormation
+                        Provider: CodeDeploy
                         Version: 1
                       Configuration:
-                        ActionMode: CHANGE_SET_REPLACE
-                        RoleArn: !GetAtt CloudFormationExecutionRole.Arn
-                        StackName: !Sub '${ServiceName}-${Stage}'
-                        ChangeSetName: !Sub '${ServiceName}-${Stage}-ChangeSet'
-                        TemplatePath: SamTemplate::sam-output.yaml
-                        Capabilities: CAPABILITY_IAM
-                        ParameterOverrides: !Sub '{ "stage": "${Stage}" }'
-                      InputArtifacts:
-                        - Name: SamTemplate
+                        ApplicationName:
+                          Ref: MyApplication
+                        DeploymentGroupName:
+                          Ref: DeploymentGroup 
                       RunOrder: 1
-                    - Name: ExecuteChangeSet
-                      ActionTypeId:
-                        Category: Deploy
-                        Owner: AWS
-                        Provider: CloudFormation
-                        Version: 1
-                      Configuration:
-                        ActionMode: CHANGE_SET_EXECUTE
-                        RoleArn: !GetAtt CloudFormationExecutionRole.Arn
-                        StackName: !Sub '${ServiceName}-${Stage}'
-                        ChangeSetName: !Sub '${ServiceName}-${Stage}-ChangeSet'
-                      OutputArtifacts:
-                        - Name: !Sub '${ServiceName}-${Stage}-ChangeSet'
-                      RunOrder: 2
+                    
+    MyApplication: 
+      Type: "AWS::CodeDeploy::Application"
+      Properties:
+        ApplicationName: !Sub '${ServiceName}-Deploy-${Stage}' 
+    DeploymentGroup:
+      Type: 'AWS::CodeDeploy::DeploymentGroup'
+      Properties:
+        ApplicationName: !Ref MyApplication
+        DeploymentConfigName: !Ref DeploymentConfig
+        DeploymentGroupName: !Ref DeploymentGroupName
+        Ec2TagFilters:
+          - Key: !Ref EC2TagKey
+            Value: !Ref EC2TagValue
+            Type: KEY_AND_VALUE
+        ServiceRoleArn: !GetAtt 'CodeDeployServiceRole.Arn'    
+        
+    DeploymentConfig:
+      Type: 'AWS::CodeDeploy::DeploymentConfig'
+      Properties:
+        MinimumHealthyHosts:
+          Type: FLEET_PERCENT
+          Value: '25'
+    CodeDeployServiceRole:
+        Type: 'AWS::IAM::Role'
+        Properties:
+          AssumeRolePolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                - 'codedeploy.amazonaws.com'
+              Action:
+              - 'sts:AssumeRole'
+          Path: '/'
+          ManagedPolicyArns:
+          - 'arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole'                          
